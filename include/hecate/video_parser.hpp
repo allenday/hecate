@@ -73,6 +73,7 @@ namespace hecate {
     bool fltr_lq;  // filter low-quality frames
     bool fltr_rdt; // filter redundant frames
     bool debug;
+    bool display;
     bool ignore_rest; // if video is too long, ignore the rest (true) or
                       // adjust step_sz (false). for vidtag this should be
                       // false, while for hecate this should be true
@@ -175,6 +176,9 @@ namespace hecate {
     void mark_invalid( vector<bool>& vec, int idx, int wnd_sz=0 );
     void mark_invalid( vector<bool>& vec, vector<string>& vec2,
                       int idx, const string msg, int wnd_sz=0 );
+    void mark_invalid( vector<bool>& vec, vector<string>& vec2,
+                      vector<double>& vec3,
+                      int idx, const string msg, double score );
     
     void release_memory();
     
@@ -183,6 +187,7 @@ namespace hecate {
     hecate::video_metadata meta;
     vector<bool> _v_frm_valid;    // filtered frames
     vector<string> _v_frm_log;    // filtered frames msgs (debug)
+    vector<double> _v_frm_score;
     
   private:
     bool _debug;
