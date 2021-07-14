@@ -97,7 +97,7 @@ ifeq ($(OPENCV_VERSION), 3)
 	LIBRARIES += opencv_imgcodecs opencv_videoio
 endif
 
-WARNINGS := -Wall -Wno-sign-compare
+WARNINGS := -Wall -Wno-sign-compare -Wno-deprecated-declarations
 
 
 ##############################
