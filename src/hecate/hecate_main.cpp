@@ -55,6 +55,7 @@ void run_hecate( hecate_params& opt, vector<int>& v_thumb_idx,
   parser_opt.max_duration = opt.max_duration;
   parser_opt.ignore_rest = (opt.max_duration>0); // ignore parts after max_nfrms
   parser_opt.debug = opt.debug;
+  parser_opt.display = opt.display;
   
   // PARSE
   v_shot_range = parser.parse_video( opt.in_video, parser_opt );
@@ -93,6 +94,10 @@ void run_hecate( hecate_params& opt, vector<int>& v_thumb_idx,
   if( opt.debug ) {
     hecate::print_elapsed_time( t0, "run_hecate" );
     hecate::print_video_metadata( opt.in_video, parser.meta );
+
+    for (int i = 0 ; i < parser.meta.nframes ; i++) {
+      fprintf( stderr, "[%d] %s %f\n", i, parser._v_frm_log[i].c_str(), parser._v_frm_score[i]);
+    }
   }
 
   
@@ -105,13 +110,28 @@ void run_hecate( hecate_params& opt, vector<int>& v_thumb_idx,
   
   // Print shot info
   if( opt.info_shot ) {
-    printf("shots: ");
+    printf("{\"segments\": [\n");
     for(size_t i=0; i<v_shot_range.size(); i++) {
-      printf("[%d:%d]", v_shot_range[i].start, v_shot_range[i].end);
-      if( i<v_shot_range.size()-1 )
-        printf(",");
+      printf("  {\"type\":\"shot\",\"start\":%d,\"end\":%d}",
+          v_shot_range[i].start,
+          v_shot_range[i].end
+        );
+      //printf("[%d:%d]", v_shot_range[i].start, v_shot_range[i].end);
+      if( i<v_shot_range.size()-1 ) {
+        printf(",\n  {\"type\":\"transition\",\"frames\":[\n");
+        for(int j=v_shot_range[i].end+1; j<v_shot_range[i+1].start; j++) {
+          printf("    {\"index\":%i,\"label\":\"%s\",\"score\":%f}",
+            j,
+            parser._v_frm_log[j].c_str(),
+            parser._v_frm_score[j]
+          );
+          if(j<v_shot_range[i+1].start-1)
+            printf(",\n");
+        }
+        printf("\n  ]},\n");
+      }
     }
-    printf("\n");
+    printf("\n]}\n");
   }
   
   // Print keyframe indices
