@@ -41,6 +41,7 @@ vector<hecate::ShotRange> VideoParser::parse_video(const string& in_video,
 /*-----------------------------------------------------------------------*/
 {
   _debug = opt.debug;
+  _display = opt.display;
   
   int ret = read_video( in_video, opt.step_sz, opt.max_duration,
                        opt.ignore_rest );
@@ -70,7 +71,8 @@ vector<hecate::ShotRange> VideoParser::parse_video(const string& in_video,
   extract_histo_features();
   
   // Post-process (break up shots if too long)
-  double min_shot_len_sec = 2.0;
+//  double min_shot_len_sec = 2.0;
+  double min_shot_len_sec = 5.0;
   post_process(min_shot_len_sec, opt.gfl);
   
   release_memory();
@@ -178,6 +180,7 @@ int VideoParser::read_video( const string& in_video, int step_sz,
   
   _v_frm_valid.assign( _nfrm_given, true );
   _v_frm_log.assign( _nfrm_given, " " );
+  _v_frm_score.assign( _nfrm_given, double(-1) );
   
   _X_diff = Mat( _nfrm_given, 1, CV_64F, Scalar(0,0,0)[0] );
   _X_ecr  = Mat( _nfrm_given, 1, CV_64F, Scalar(0,0,0)[0] );
@@ -196,9 +199,9 @@ void VideoParser::filter_heuristic(double fltr_begin_sec, double fltr_end_sec)
   int fltr_end_nfrms = ceil(fltr_end_sec * _video_fps / (double)_step_sz);
   
   for(int i=0; i<fltr_begin_nfrms; i++)
-    mark_invalid(_v_frm_valid, _v_frm_log, i, "[Begin]");
+    mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, i, "Begin", double(0));
   for(int i=0; i<fltr_end_nfrms; i++)
-    mark_invalid(_v_frm_valid, _v_frm_log, _nfrm_total-1-i, "[End]");
+    mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, _nfrm_total-1-i, "End", double(0));
 }
 
 
@@ -231,19 +234,19 @@ void VideoParser::filter_low_quality( double thrsh_bright,
   hecate::sort( v_brightness, v_srt_val, v_srt_idx );
   for( int i=0; i<nfrm_nperc; i++ )
     if( v_srt_val[i] <= thrsh_bright )
-      mark_invalid(_v_frm_valid, _v_frm_log, v_srt_idx[i], "[Dark]");
+      mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, v_srt_idx[i], "Dark", v_srt_val[i]);
   
   // BLURRY frame detection
   hecate::sort( v_sharpness, v_srt_val, v_srt_idx );
   for( int i=0; i<nfrm_nperc; i++ )
     if( v_srt_val[i] <= thrsh_sharp )
-      mark_invalid(_v_frm_valid, _v_frm_log, v_srt_idx[i], "[Blurry]");
+      mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, v_srt_idx[i], "Blurry", v_srt_val[i]);
   
   // UNIFORM frame detection
   hecate::sort( v_uniformity, v_srt_val, v_srt_idx );
   for( int i=0; i<nfrm_nperc; i++ )
     if( v_srt_val[_nfrm_given-i-1] >= thrsh_uniform )
-      mark_invalid(_v_frm_valid, _v_frm_log, v_srt_idx[_nfrm_given-i-1], "[Uniform]");
+      mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, v_srt_idx[_nfrm_given-i-1], "Uniform", v_srt_val[i]);
 }
 
 
@@ -310,13 +313,13 @@ void VideoParser::filter_transition( double thrsh_diff, double thrsh_ecr )
   hecate::sort( v_diff, v_srt_val, v_srt_idx );
   for( int i=0; i<nfrm_nperc; i++ )
     if( v_srt_val[_nfrm_given-i-1] >= thrsh_diff )
-      mark_invalid(_v_frm_valid, _v_frm_log, v_srt_idx[_nfrm_given-i-1], "[Cut]" );
+      mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, v_srt_idx[_nfrm_given-i-1], "Cut", v_srt_val[_nfrm_given-i-1] );
   
   // TRANSITION detection (cut, fade, dissolve, wipe)
   hecate::sort( v_ecr, v_srt_val, v_srt_idx );
   for( int i=0; i<nfrm_nperc; i++ )
     if( v_srt_val[_nfrm_given-i-1] >= thrsh_ecr )
-      mark_invalid(_v_frm_valid, _v_frm_log, v_srt_idx[_nfrm_given-i-1], "[ECR]" );
+      mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, v_srt_idx[_nfrm_given-i-1], "ECR", v_srt_val[_nfrm_given-i-1] );
 }
 
 
@@ -332,7 +335,8 @@ void VideoParser::post_process(double min_shot_sec, bool gfl)
   hecate::Segmenter seg;
   int start_idx=-1, end_idx=-1, shotlen=-1;
   int min_shot_len = min_shot_sec * _video_fps / _step_sz;
-  int max_shot_len = 3 * min_shot_len;
+//  int max_shot_len = 3 * min_shot_len;
+  int max_shot_len = 300 * min_shot_len;
   double thrsh_gfl = 0.25;
   
   for( size_t i=0; i<_v_frm_valid.size(); i++ )
@@ -369,8 +373,8 @@ void VideoParser::post_process(double min_shot_sec, bool gfl)
         }
         
         for(size_t k=0; k<jump.size(); k++) {
-          mark_invalid(_v_frm_valid, _v_frm_log, start_idx+jump[k]-1, "[GFL]" );
-          mark_invalid(_v_frm_valid, _v_frm_log, start_idx+jump[k], "[GFL]" );
+          mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, start_idx+jump[k]-1, "GFL", gfl ? double(1) : double(0) );
+          mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, start_idx+jump[k], "GFL", gfl ? double(1) : double(0) );
         }
         
         if( _debug )
@@ -532,7 +536,7 @@ void VideoParser::filter_redundant_and_obtain_subshots()
         // Filter out redundant frames
         for( int k=ssb0; k<=ssb1; k++ )
           if( k!=diff_min_idx )
-            mark_invalid(_v_frm_valid, _v_frm_log, k, "[Redundant]");
+            mark_invalid(_v_frm_valid, _v_frm_log, _v_frm_score, k, "Redundant", double(0));
         
         // reset sub-shot area
         ssb0 = ssb1 = lbl = -1;
@@ -569,7 +573,7 @@ void VideoParser::update_shot_ranges( int min_shot_len )
       }
       else {
         for(int j=sb0; j<=sb1; j++ )
-          mark_invalid( _v_frm_valid, _v_frm_log, j, "[Short]" );
+          mark_invalid( _v_frm_valid, _v_frm_log, _v_frm_score, j, "Short", double(0));
       }
       sb0 = sb1 = -1;
     }
@@ -601,9 +605,23 @@ void VideoParser::mark_invalid( vector<bool>& vec, vector<string>& vec2,
 /*-----------------------------------------------------------------------*/
 {
   int vec_len = (int)vec.size();
-  for(int i=max(0,idx-wnd_sz); i<=min(vec_len-1,idx+wnd_sz); i++) {
+  for(int i=max(0,idx); i<=min(vec_len-1,idx); i++) {
     vec[i] = false;
     vec2[i] = msg;
+  }
+}
+
+/*-----------------------------------------------------------------------*/
+void VideoParser::mark_invalid( vector<bool>& vec, vector<string>& vec2,
+                               vector<double>& vec3,
+                               int idx, const string msg, double score )
+/*-----------------------------------------------------------------------*/
+{
+  int vec_len = (int)vec.size();
+  for(int i=max(0,idx); i<=min(vec_len-1,idx); i++) {
+    vec[i] = false;
+    vec2[i] = msg;
+    vec3[i] = score;
   }
 }
 
